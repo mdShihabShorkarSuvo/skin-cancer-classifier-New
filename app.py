@@ -7,9 +7,10 @@ import numpy as np
 import pandas as pd
 import os
 
-# ----------------- Configuration -----------------
+# Page config
 st.set_page_config(page_title="🧬 Skin Cancer Classifier", layout="centered")
 
+# Class labels
 CLASS_NAMES = {
     0: "Basal Cell Carcinoma (BCC)",
     1: "Benign Keratosis-like Lesions (BKL)",
@@ -19,9 +20,10 @@ CLASS_NAMES = {
     5: "Others"
 }
 
+# Model path
 MODEL_PATH = "model/DenseNet121_Merged_Pytorch.pth"
 
-# ----------------- Model Definition -----------------
+# Define model architecture (must match training)
 class SkinCancerClassifier(nn.Module):
     def __init__(self):
         super(SkinCancerClassifier, self).__init__()
@@ -31,7 +33,7 @@ class SkinCancerClassifier(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-# ----------------- Load Model -----------------
+# Load model
 @st.cache_resource
 def load_model():
     model = SkinCancerClassifier()
@@ -39,7 +41,7 @@ def load_model():
     model.eval()
     return model
 
-# ----------------- Preprocess -----------------
+# Preprocess image
 def preprocess_image(image):
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -47,7 +49,7 @@ def preprocess_image(image):
     ])
     return transform(image).unsqueeze(0)
 
-# ----------------- Sidebar -----------------
+# Sidebar
 with st.sidebar:
     st.markdown("## 📝 How to Use")
     st.markdown("""
@@ -55,15 +57,14 @@ with st.sidebar:
     2. The model will classify the type.
     3. View prediction and confidence chart.
     """)
-    st.markdown("📌 Low-confidence results may need better-quality images.")
 
-# ----------------- Main Header -----------------
+# Header
 st.markdown("""
     <h1 style='text-align:center;'>🧬 Skin Cancer Classifier</h1>
     <p style='text-align:center;'>Upload a skin lesion image to classify the type of cancer using AI.</p>
 """, unsafe_allow_html=True)
 
-# ----------------- Upload Section -----------------
+# Upload
 uploaded_file = st.file_uploader("📤 Upload Image", type=["jpg", "jpeg", "png", "bmp", "gif"])
 
 if uploaded_file:
@@ -95,14 +96,14 @@ if uploaded_file:
         st.bar_chart(df)
 
         if confidence < 0.6:
-            st.warning("⚠️ Low confidence. Try using a higher quality image.")
+            st.warning("⚠️ Low confidence. Try a better-quality image.")
 
     except Exception as e:
         st.error(f"🚫 Error: {e}")
 else:
     st.info("📷 Please upload a skin lesion image to get started.")
 
-# ----------------- Footer -----------------
+# Footer
 st.markdown("""
     <hr>
     <div style='text-align:center'>
