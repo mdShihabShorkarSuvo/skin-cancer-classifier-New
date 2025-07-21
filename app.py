@@ -1,92 +1,86 @@
 import streamlit as st
 import torch
-import torch.nn as nn
+import torchvision.transforms as transforms
 from PIL import Image
-import timm
-from torchvision import transforms
-from collections import OrderedDict
-
-# Page config
-st.set_page_config(page_title="Skin Cancer Classifier", layout="centered")
-st.title("🔬 Skin Cancer Classifier - ConvNeXtV2 Tiny")
-st.markdown("Upload a skin lesion image to classify using ConvNeXtV2 Tiny.")
+import requests
+import os
+import numpy as np
+import pandas as pd
+from torchvision.models import convnext_tiny
 
 # Constants
+MODEL_URL = "https://github.com/mdShihabShorkarSuvo/skin-cancer-classifier-New/raw/main/model/ConvNeXtV2_Tiny_Merged_Pytorch.pth"
 MODEL_PATH = "model/ConvNeXtV2_Tiny_Merged_Pytorch.pth"
-CLASS_NAMES = [
-    'Basal Cell Carcinoma (BCC)', 
-    'Benign Keratosis-like Lesions (BKL)', 
-    'Dermatofibroma (DF)', 
-    'Melanoma (MEL)', 
-    'Melanocytic Nevi (NV)', 
-    'Others'
-]
+CLASS_NAMES = {
+    0: "Basal Cell Carcinoma (BCC)",
+    1: "Benign Keratosis-like Lesions (BKL)",
+    2: "Dermatofibroma (DF)",
+    3: "Melanoma (MEL)",
+    4: "Melanocytic Nevi (NV)",
+    5: "Others"
+}
 
-# Define model using timm
-class SkinCancerClassifier(nn.Module):
-    def __init__(self):
-        super().__init__()
-        # load ConvNeXtV2 Tiny backbone, no pretrained weights here
-        self.model = timm.create_model('convnextv2_tiny', pretrained=False, num_classes=len(CLASS_NAMES))
+# Download model if not found
+def download_model():
+    os.makedirs("model", exist_ok=True)
+    if not os.path.exists(MODEL_PATH):
+        with st.spinner("📥 Downloading model..."):
+            r = requests.get(MODEL_URL)
+            r.raise_for_status()
+            with open(MODEL_PATH, 'wb') as f:
+                f.write(r.content)
+        st.success("✅ Model downloaded!")
 
-    def forward(self, x):
-        return self.model(x)
-
+# Load model
 @st.cache_resource
 def load_model():
-    model = SkinCancerClassifier()
-    state_dict = torch.load(MODEL_PATH, map_location=torch.device("cpu"))
-
-    # Fix possible prefix 'model.' in keys:
-    new_state_dict = OrderedDict()
-    for k, v in state_dict.items():
-        if k.startswith('model.'):
-            new_key = k[6:]
-        else:
-            new_key = k
-        new_state_dict[new_key] = v
-
-    model.load_state_dict(new_state_dict)
+    download_model()
+    model = convnext_tiny(pretrained=False, num_classes=len(CLASS_NAMES))
+    state_dict = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
+    model.load_state_dict(state_dict)
     model.eval()
     return model
 
-model = load_model()
+# Image preprocessing
+def preprocess_image(image):
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5]*3, [0.5]*3)
+    ])
+    return transform(image).unsqueeze(0)
 
-# Image transforms (ConvNeXt expects 224x224 input, normalized as below)
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],  # ImageNet means
-        std=[0.229, 0.224, 0.225]    # ImageNet stds
-    ),
-])
+# UI Setup
+st.set_page_config(page_title="🧬 Skin Cancer Classifier", layout="centered")
 
-# Upload image
-uploaded_file = st.file_uploader("Upload a skin lesion image", type=["jpg", "jpeg", "png"])
+st.markdown("""
+    <h1 style='text-align: center; color: #4CAF50;'>🧬 Skin Cancer Classifier</h1>
+    <p style='text-align: center;'>Upload a skin lesion image and classify using ConvNeXtV2 Tiny (PyTorch)</p>
+""", unsafe_allow_html=True)
+
+with st.sidebar:
+    st.markdown("### 📋 Instructions")
+    st.markdown("1. Upload a **clear skin image** (JPG/PNG).\n2. Model will classify the lesion.\n3. Check predicted class and confidence.")
+
+uploaded_file = st.file_uploader("📤 Upload Image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    image = Image.open(uploaded_file).convert('RGB')
-    st.image(image, caption="Uploaded Image", use_column_width=True)
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="🖼️ Uploaded Image", use_column_width=True)
 
-    input_tensor = transform(image).unsqueeze(0)  # batch dimension
+    model = load_model()
+    input_tensor = preprocess_image(image)
 
     with torch.no_grad():
         outputs = model(input_tensor)
-        probs = torch.softmax(outputs, dim=1)
-        confidence, predicted = torch.max(probs, 1)
-        predicted_label = CLASS_NAMES[predicted.item()]
+        probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
+        predicted_class = torch.argmax(probabilities).item()
+        confidence = probabilities[predicted_class].item()
 
-    st.success(f"🧠 Prediction: {predicted_label}")
-    st.info(f"📊 Confidence: {confidence.item():.2%}")
+    st.success(f"🎯 Predicted: **{CLASS_NAMES[predicted_class]}** ({confidence * 100:.2f}%)")
 
-else:
-    st.info("Please upload a skin lesion image to get started.")
+    # Chart
+    st.markdown("### 📊 Probability Chart")
+    prob_df = pd.DataFrame(probabilities.numpy(), index=[CLASS_NAMES[i] for i in range(len(CLASS_NAMES))], columns=["Confidence"])
+    st.bar_chart(prob_df)
 
-# Footer
-st.markdown("""
----
-<div style="text-align:center">
-    Developed by <b>Md. Shihab Shorkar</b> | Model: <b>ConvNeXtV2 Tiny (PyTorch + timm)</b>
-</div>
-""", unsafe_allow_html=True)
