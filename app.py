@@ -3,17 +3,21 @@ import torch
 import torch.nn as nn
 from torchvision import transforms, models
 from PIL import Image
-import os
+from collections import OrderedDict
 
-# Title and description
+# Page config
 st.set_page_config(page_title="Skin Cancer Classifier", layout="centered")
 st.title("🔬 Skin Cancer Classifier")
 st.markdown("Upload a skin lesion image to predict its class.")
 
 # Constants
 MODEL_PATH = "model/DenseNet121_Merged_Pytorch.pth"
-CLASS_NAMES = ['Actinic keratoses', 'Basal cell carcinoma', 'Benign keratosis-like lesions',
-               'Dermatofibroma', 'Melanocytic nevi', 'Melanoma']
+CLASS_NAMES = ['Basal Cell Carcinoma (BCC)', 
+               'Benign Keratosis-like Lesions (BKL)', 
+               'Dermatofibroma (DF)', 
+               'Melanoma (MEL)', 
+               'Melanocytic Nevi (NV)', 
+               'Others']
 
 # Define model class using torchvision DenseNet121
 class SkinCancerClassifier(nn.Module):
@@ -25,11 +29,22 @@ class SkinCancerClassifier(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-# Load model (cached for performance)
+# Load model with prefix fix
 @st.cache_resource
 def load_model():
     model = SkinCancerClassifier()
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=torch.device("cpu")))
+    state_dict = torch.load(MODEL_PATH, map_location=torch.device("cpu"))
+    
+    # Remove 'model.' prefix from keys if exists
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        if k.startswith("model."):
+            new_key = k[6:]  # remove 'model.' prefix
+        else:
+            new_key = k
+        new_state_dict[new_key] = v
+    
+    model.load_state_dict(new_state_dict)
     model.eval()
     return model
 
@@ -50,16 +65,24 @@ if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    # Preprocess image
-    image_tensor = transform(image).unsqueeze(0)  # Shape: [1, 3, 224, 224]
+    image_tensor = transform(image).unsqueeze(0)  # shape: [1, 3, 224, 224]
 
-    # Predict
     with torch.no_grad():
         outputs = model(image_tensor)
-        _, predicted = torch.max(outputs, 1)
-        prediction = CLASS_NAMES[predicted.item()]
-        confidence = torch.softmax(outputs, dim=1)[0][predicted].item()
+        probs = torch.softmax(outputs, dim=1)
+        confidence, predicted = torch.max(probs, 1)
+        predicted_label = CLASS_NAMES[predicted.item()]
 
-    # Display results
-    st.success(f"🧠 **Prediction:** {prediction}")
-    st.info(f"📊 **Confidence:** {confidence:.2%}")
+    st.success(f"🧠 Prediction: {predicted_label}")
+    st.info(f"📊 Confidence: {confidence.item():.2%}")
+
+else:
+    st.info("📷 Please upload a skin lesion image to get started.")
+    
+# Footer
+st.markdown("""
+    <hr>
+    <div style='text-align:center'>
+        Developed by <b>Md. Shihab Shorkar</b> | Model: <b>DenseNet121 (PyTorch)</b>
+    </div>
+""", unsafe_allow_html=True)
