@@ -1,39 +1,31 @@
 import streamlit as st
 import torch
 import torch.nn as nn
-import torchvision.transforms as transforms
+from torchvision import transforms, models
 from PIL import Image
-import numpy as np
-import pandas as pd
 import os
 
-# Page config
-st.set_page_config(page_title="🧬 Skin Cancer Classifier", layout="centered")
+# Title and description
+st.set_page_config(page_title="Skin Cancer Classifier", layout="centered")
+st.title("🔬 Skin Cancer Classifier")
+st.markdown("Upload a skin lesion image to predict its class.")
 
-# Class labels
-CLASS_NAMES = {
-    0: "Basal Cell Carcinoma (BCC)",
-    1: "Benign Keratosis-like Lesions (BKL)",
-    2: "Dermatofibroma (DF)",
-    3: "Melanoma (MEL)",
-    4: "Melanocytic Nevi (NV)",
-    5: "Others"
-}
-
-# Model path
+# Constants
 MODEL_PATH = "model/DenseNet121_Merged_Pytorch.pth"
+CLASS_NAMES = ['Actinic keratoses', 'Basal cell carcinoma', 'Benign keratosis-like lesions',
+               'Dermatofibroma', 'Melanocytic nevi', 'Melanoma']
 
-# Define model architecture (must match training)
+# Define model class using torchvision DenseNet121
 class SkinCancerClassifier(nn.Module):
     def __init__(self):
         super(SkinCancerClassifier, self).__init__()
-        self.model = torch.hub.load('pytorch/vision:v0.10.0', 'densenet121', pretrained=False)
-        self.model.classifier = nn.Linear(self.model.classifier.in_features, 6)
+        self.model = models.densenet121(pretrained=False)
+        self.model.classifier = nn.Linear(self.model.classifier.in_features, len(CLASS_NAMES))
 
     def forward(self, x):
         return self.model(x)
 
-# Load model
+# Load model (cached for performance)
 @st.cache_resource
 def load_model():
     model = SkinCancerClassifier()
@@ -41,72 +33,33 @@ def load_model():
     model.eval()
     return model
 
-# Preprocess image
-def preprocess_image(image):
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor()
-    ])
-    return transform(image).unsqueeze(0)
+model = load_model()
 
-# Sidebar
-with st.sidebar:
-    st.markdown("## 📝 How to Use")
-    st.markdown("""
-    1. Upload a **skin lesion image** (JPG/PNG).
-    2. The model will classify the type.
-    3. View prediction and confidence chart.
-    """)
+# Image transformation
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406],
+                         [0.229, 0.224, 0.225])
+])
 
-# Header
-st.markdown("""
-    <h1 style='text-align:center;'>🧬 Skin Cancer Classifier</h1>
-    <p style='text-align:center;'>Upload a skin lesion image to classify the type of cancer using AI.</p>
-""", unsafe_allow_html=True)
-
-# Upload
-uploaded_file = st.file_uploader("📤 Upload Image", type=["jpg", "jpeg", "png", "bmp", "gif"])
+# File uploader
+uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
-    try:
-        image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, caption="🖼️ Uploaded Image", use_column_width=True)
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
-        model = load_model()
-        input_tensor = preprocess_image(image)
+    # Preprocess image
+    image_tensor = transform(image).unsqueeze(0)  # Shape: [1, 3, 224, 224]
 
-        with torch.no_grad():
-            output = model(input_tensor)
-            probs = torch.softmax(output, dim=1).numpy()[0]
+    # Predict
+    with torch.no_grad():
+        outputs = model(image_tensor)
+        _, predicted = torch.max(outputs, 1)
+        prediction = CLASS_NAMES[predicted.item()]
+        confidence = torch.softmax(outputs, dim=1)[0][predicted].item()
 
-        predicted_class = int(np.argmax(probs))
-        confidence = float(np.max(probs))
-        predicted_label = CLASS_NAMES.get(predicted_class, "Unknown")
-
-        st.markdown(f"""
-            <div style='background:#f0f8ff;padding:20px;border-radius:10px;'>
-                <h3>🔍 Prediction Result</h3>
-                <p><b>Class:</b> {predicted_class} - {predicted_label}</p>
-                <p><b>Confidence:</b> {confidence*100:.2f}%</p>
-            </div>
-        """, unsafe_allow_html=True)
-
-        # Probability chart
-        df = pd.DataFrame(probs, index=CLASS_NAMES.values(), columns=["Confidence"])
-        st.bar_chart(df)
-
-        if confidence < 0.6:
-            st.warning("⚠️ Low confidence. Try a better-quality image.")
-
-    except Exception as e:
-        st.error(f"🚫 Error: {e}")
-else:
-    st.info("📷 Please upload a skin lesion image to get started.")
-
-# Footer
-st.markdown("""
-    <hr>
-    <div style='text-align:center'>
-        Developed by <b>Md. Shihab Shorkar</b> | Model: <b>DenseNet121 (PyTorch)</b>
-    </div>
-""", unsafe_allow_html=True)
+    # Display results
+    st.success(f"🧠 **Prediction:** {prediction}")
+    st.info(f"📊 **Confidence:** {confidence:.2%}")
